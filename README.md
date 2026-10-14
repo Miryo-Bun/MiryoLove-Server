@@ -13,7 +13,7 @@ These are distinct products:
 - **MiryoLove AI** — a future AI component; no model or AI provider is connected.
 - **MiryoLove Training** — a future model-training system, outside this project.
 
-Russian is planned as the primary language of the future MiryoLove user interface. English and Ukrainian are additional interface languages. The primary language of the technical documentation is English. The current API does not yet store a preferred locale or localize its response messages.
+English is planned as the primary language of the project (for development and interface). Russian and Ukrainian are additional interface languages. The primary language of the technical documentation is English. The current API does not yet store a preferred locale or localize its response messages.
 
 ## Architecture
 
