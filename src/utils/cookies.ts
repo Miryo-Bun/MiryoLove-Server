@@ -4,8 +4,16 @@ import type { Response } from "express";
 
 const sessionCookieName = "miryolove_session";
 
+// Shared parent domain for all MiryoLove services, e.g. ".miryolove.org".
+// Empty on localhost, so the cookie stays host-only in development.
+const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+
 function baseCookieOptions(secure: boolean): SerializeOptions {
-  return { httpOnly: true, secure, sameSite: "lax", path: "/" };
+  const options: SerializeOptions = { httpOnly: true, secure, sameSite: "lax", path: "/" };
+  if (cookieDomain) {
+    options.domain = cookieDomain;
+  }
+  return options;
 }
 
 export function readSessionCookie(header: string | undefined): string | undefined {
