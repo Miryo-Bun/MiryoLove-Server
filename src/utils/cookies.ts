@@ -3,9 +3,10 @@ import type { SerializeOptions } from "cookie";
 import type { Response } from "express";
 
 const sessionCookieName = "miryolove_session";
+const oauthStateLifetimeSeconds = 600;
 
 function baseCookieOptions(secure: boolean): SerializeOptions {
-  return { httpOnly: true, secure, sameSite: "lax", path: "/" };
+  return { httpOnly: true, secure, sameSite: "lax", path: "/api" };
 }
 
 export function readSessionCookie(header: string | undefined): string | undefined {
@@ -48,7 +49,7 @@ export function setOAuthStateCookie(
     "Set-Cookie",
     serialize(`miryolove_oauth_${provider}`, state, {
       ...baseCookieOptions(secure),
-      maxAge: 600,
+      maxAge: oauthStateLifetimeSeconds,
       path: `/api/auth/${provider}`,
     }),
   );
@@ -75,4 +76,33 @@ export function clearOAuthStateCookie(
       path: `/api/auth/${provider}`,
     }),
   );
+}
+
+export function getCookiePolicy(secure: boolean, sessionLifetimeDays: number) {
+  return {
+    session: {
+      name: sessionCookieName,
+      purpose: "Keeps the user signed in to MiryoLove AI.",
+      contents: "opaque_session_token",
+      httpOnly: true,
+      secure,
+      sameSite: "Lax",
+      path: "/api",
+      domain: null,
+      maxAgeDays: sessionLifetimeDays,
+    },
+    oauthState: {
+      names: ["miryolove_oauth_google", "miryolove_oauth_yandex"],
+      purpose: "Temporarily protects Google and Yandex sign-in against request forgery.",
+      contents: "oauth_state_value",
+      httpOnly: true,
+      secure,
+      sameSite: "Lax",
+      path: "/api/auth/{provider}",
+      domain: null,
+      maxAgeSeconds: oauthStateLifetimeSeconds,
+    },
+    analytics: false,
+    advertising: false,
+  } as const;
 }

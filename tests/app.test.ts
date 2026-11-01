@@ -3,6 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
+import type { Prisma } from "../src/generated/prisma/client.js";
 import type {
   AIServiceContract,
   AuthServiceContract,
@@ -136,13 +137,42 @@ class MemoryChats implements ChatServiceContract {
   async createMessage(
     userId: string,
     chatId: string,
-    input: { role: "user" | "assistant" | "system"; content: string },
+    input: {
+      role: "user" | "assistant" | "system";
+      content: string;
+      sources?: Prisma.InputJsonValue;
+    },
   ): Promise<MessageRecord> {
     await this.get(userId, chatId);
     const now = new Date();
-    const message = { id: randomUUID(), chatId, ...input, createdAt: now, updatedAt: now };
+    const message = {
+      id: randomUUID(),
+      chatId,
+      role: input.role,
+      content: input.content,
+      sources: input.sources ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
     this.messages.get(chatId)!.push(message);
     return message;
+  }
+
+  async createExchange(
+    userId: string,
+    chatId: string,
+    input: { userMessage: string; assistantMessage: string; sources?: Prisma.InputJsonValue },
+  ): Promise<[MessageRecord, MessageRecord]> {
+    const userMessage = await this.createMessage(userId, chatId, {
+      role: "user",
+      content: input.userMessage,
+    });
+    const assistantMessage = await this.createMessage(userId, chatId, {
+      role: "assistant",
+      content: input.assistantMessage,
+      ...(input.sources === undefined ? {} : { sources: input.sources }),
+    });
+    return [userMessage, assistantMessage];
   }
 
   async listMessages(userId: string, chatId: string, limit: number): Promise<MessageRecord[]> {
@@ -153,6 +183,10 @@ class MemoryChats implements ChatServiceContract {
 
 class MemoryOAuth implements OAuthServiceContract {
   constructor(private readonly auth: MemoryAuth) {}
+
+  isConfigured(): boolean {
+    return true;
+  }
 
   getAuthorizationUrl(provider: "google" | "yandex", state: string): string {
     return `https://identity.example/${provider}?state=${encodeURIComponent(state)}`;
@@ -196,9 +230,44 @@ describe("MiryoLove Server API", () => {
     const cookie = response.headers["set-cookie"][0] as string;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/api");
+    expect(cookie).toContain("Expires=");
     expect(cookie.toLowerCase().includes("; secure")).toBe(env.NODE_ENV === "production");
+    expect(response.body).not.toHaveProperty("token");
+    expect(response.body).not.toHaveProperty("expiresAt");
     return cookie.split(";")[0] as string;
   }
+
+  it("reports OAuth provider availability without exposing credentials", async () => {
+    await request(app)
+      .get("/api/auth/providers")
+      .expect(200, { providers: { google: true, yandex: true } });
+  });
+
+  it("reports the actual application cookie policy without exposing secret values", async () => {
+    const response = await request(app).get("/api/auth/cookie-policy").expect(200);
+    expect(response.body.cookies.session).toMatchObject({
+      name: "miryolove_session",
+      contents: "opaque_session_token",
+      httpOnly: true,
+      secure: env.NODE_ENV === "production",
+      sameSite: "Lax",
+      path: "/api",
+      domain: null,
+      maxAgeDays: env.SESSION_TTL_DAYS,
+    });
+    expect(response.body.cookies.oauthState).toMatchObject({
+      names: ["miryolove_oauth_google", "miryolove_oauth_yandex"],
+      contents: "oauth_state_value",
+      httpOnly: true,
+      secure: env.NODE_ENV === "production",
+      sameSite: "Lax",
+      path: "/api/auth/{provider}",
+      domain: null,
+      maxAgeSeconds: 600,
+    });
+    expect(response.body.cookies).toMatchObject({ analytics: false, advertising: false });
+  });
 
   it("returns service and database health without disclosing database details", async () => {
     await request(app).get("/health").expect(200, { status: "ok", service: "MiryoLove Server" });
@@ -243,11 +312,12 @@ describe("MiryoLove Server API", () => {
 
   it("requires auth for current-user endpoints and invalidates the session on logout", async () => {
     await request(app).get("/api/auth/me").expect(401);
-    await request(app).post("/api/auth/logout").expect(401);
-    await request(app)
+    const expiredLogout = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", "miryolove_session=invalid-token")
-      .expect(401);
+      .expect(204);
+    expect(expiredLogout.headers["set-cookie"][0]).toContain("Max-Age=0");
+    expect(expiredLogout.headers["set-cookie"][0]).toContain("Path=/api");
     await request(app)
       .get("/api/auth/me")
       .set("Cookie", "miryolove_session=invalid-token")
@@ -264,6 +334,19 @@ describe("MiryoLove Server API", () => {
     expect(logout.headers["set-cookie"][0]).toContain("Max-Age=0");
     await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
     await request(app).get("/api/users/me").set("Cookie", cookie).expect(401);
+  });
+
+  it("rejects state-changing requests from origins outside the configured allowlist", async () => {
+    await request(app)
+      .post("/api/auth/login")
+      .set("Origin", "https://attacker.example")
+      .send({ email: "person@example.com", password: "a-long-test-password" })
+      .expect(403, {
+        error: {
+          code: "ORIGIN_NOT_ALLOWED",
+          message: "This request origin is not allowed.",
+        },
+      });
   });
 
   it("reads and updates only allowed profile fields", async () => {
@@ -377,21 +460,52 @@ describe("MiryoLove Server API", () => {
       .expect(400, {
         error: { code: "OAUTH_STATE_INVALID", message: "OAuth state validation failed." },
       });
-    await request(app)
+    const start = await request(app).get("/api/auth/yandex").expect(302);
+    const state = new URL(start.headers.location as string).searchParams.get("state");
+    const cookie = start.headers["set-cookie"][0].split(";")[0] as string;
+    expect(state).toBeTruthy();
+    expect(cookie).toContain("miryolove_oauth_yandex=");
+    const callback = await request(app)
       .get("/api/auth/yandex/callback")
-      .query({ error: "access_denied", state: "a-state-value-long-enough" })
-      .expect(401);
+      .set("Cookie", cookie)
+      .query({ error: "access_denied", state })
+      .expect(302);
+    const destination = new URL(callback.headers.location as string);
+    expect(destination.origin).toBe(new URL(env.FRONTEND_URL).origin);
+    expect(destination.searchParams.get("oauthError")).toBe("OAUTH_REJECTED");
   });
 
-  it("returns AI_NOT_CONFIGURED without invoking a model", async () => {
+  it("returns a generated answer and its sources from the authenticated AI endpoint", async () => {
     const cookie = await register();
     const chat = await request(app).post("/api/chats").set("Cookie", cookie).send({}).expect(201);
-    await request(app)
+    const aiApp = createApp({
+      authService: auth,
+      oauthService: new MemoryOAuth(auth),
+      profileService: new MemoryProfiles(auth),
+      chatService: chats,
+      aiService: {
+        async generateResponse(input) {
+          expect(input.userId).toBeTruthy();
+          expect(input.chatId).toBe(chat.body.chat.id);
+          expect(input.message).toBe("Hello");
+          return {
+            content: "Generated by the model.",
+            sources: [
+              { source: "Wikipedia", title: "Test", url: "https://en.wikipedia.org/wiki/Test" },
+            ],
+          };
+        },
+      },
+      async checkDatabase() {},
+    });
+    const response = await request(aiApp)
       .post("/api/ai/chat")
       .set("Cookie", cookie)
       .send({ chatId: chat.body.chat.id, message: "Hello" })
-      .expect(503, {
-        error: { code: "AI_NOT_CONFIGURED", message: "AI is not configured." },
-      });
+      .expect(200);
+    expect(response.body).toEqual({
+      content: "Generated by the model.",
+      sources: [{ source: "Wikipedia", title: "Test", url: "https://en.wikipedia.org/wiki/Test" }],
+    });
   });
 });

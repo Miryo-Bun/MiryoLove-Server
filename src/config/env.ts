@@ -18,6 +18,28 @@ const envSchema = z.object({
   YANDEX_CLIENT_SECRET: z.string().default(""),
   YANDEX_CALLBACK_URL: z.string().url().default("http://localhost:3001/api/auth/yandex/callback"),
   JSON_BODY_LIMIT: z.string().default("1mb"),
+  AI_RUNTIME_PYTHON: z
+    .string()
+    .default("/mnt/Manchild/Project/MiryoLove/MiryoLove AI/.venv/bin/python"),
+  AI_RUNTIME_SCRIPT: z
+    .string()
+    .default("/mnt/Manchild/Project/MiryoLove/MiryoLove AI/miryolove_ai.py"),
+  MIRYO_MODEL_PATH: z.string().default("/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b"),
+  MIRYOWIKI_API: z.string().url().default("https://wiki.miryolove.org/api.php"),
+  MIRYOWIKI_URL: z.string().url().default("https://wiki.miryolove.org"),
+  AI_RUNTIME_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(3_600_000).default(1_200_000),
+  AI_MAX_NEW_TOKENS: z.coerce.number().int().min(64).max(8192).default(1700),
+  AI_MAX_INPUT_CHARS: z.coerce.number().int().min(1000).max(100_000).default(12_000),
+  AI_MAX_HISTORY_MESSAGES: z.coerce.number().int().min(2).max(100).default(32),
+  AI_MAX_SOURCE_CHARS: z.coerce.number().int().min(256).max(20_000).default(2400),
+  AI_CONTEXT_TOKENS: z.coerce.number().int().min(0).max(131_072).default(0),
+  AI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.7),
+  AI_TOP_P: z.coerce.number().min(0.01).max(1).default(0.8),
+  AI_DO_SAMPLE: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  AI_REPETITION_PENALTY: z.coerce.number().min(0.1).max(2).default(1.05),
 });
 
 const parsed = envSchema.safeParse(process.env);

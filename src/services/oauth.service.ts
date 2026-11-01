@@ -133,9 +133,14 @@ async function loadProfile(
 export class OAuthService implements OAuthServiceContract {
   constructor(private readonly authService: Pick<AuthServiceContract, "createSession">) {}
 
+  isConfigured(provider: "google" | "yandex"): boolean {
+    const config = settings(provider);
+    return Boolean(config.clientId && config.clientSecret);
+  }
+
   getAuthorizationUrl(provider: "google" | "yandex", state: string): string {
     const config = settings(provider);
-    if (!config.clientId || !config.clientSecret) {
+    if (!this.isConfigured(provider)) {
       throw new AppError(503, "OAUTH_NOT_CONFIGURED", `${provider} sign-in is not configured.`);
     }
     const url =
@@ -154,7 +159,7 @@ export class OAuthService implements OAuthServiceContract {
 
   async authenticate(provider: "google" | "yandex", code: string): Promise<SessionResult> {
     const config = settings(provider);
-    if (!config.clientId || !config.clientSecret) {
+    if (!this.isConfigured(provider)) {
       throw new AppError(503, "OAUTH_NOT_CONFIGURED", `${provider} sign-in is not configured.`);
     }
     let profile: OAuthProfile;
