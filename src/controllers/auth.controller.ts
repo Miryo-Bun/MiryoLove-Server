@@ -12,6 +12,7 @@ import {
   clearSessionCookie,
   readOAuthStateCookie,
   readSessionCookie,
+  getCookiePolicy,
   setOAuthStateCookie,
   setSessionCookie,
 } from "../utils/cookies.js";
@@ -33,6 +34,7 @@ export function createAuthController(
   oauthStart(provider: "google" | "yandex"): RequestHandler;
   oauthCallback(provider: "google" | "yandex"): RequestHandler;
   oauthProviders: RequestHandler;
+  cookiePolicy: RequestHandler;
 } {
   return {
     register: async (request, response) => {
@@ -88,6 +90,9 @@ export function createAuthController(
           yandex: oauthService.isConfigured("yandex"),
         },
       });
+    },
+    cookiePolicy: (_request, response) => {
+      response.json({ cookies: getCookiePolicy(isSecure, env.SESSION_TTL_DAYS) });
     },
     oauthCallback: (provider) => async (request, response) => {
       const callback = validate(oauthCallbackSchema, request.query);

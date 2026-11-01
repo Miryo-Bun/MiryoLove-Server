@@ -2,18 +2,18 @@
 
 MiryoLove Server is the backend and REST API foundation for the MiryoLove ecosystem. It provides account registration and sign-in, server-side sessions, profiles, chats, messages, PostgreSQL persistence, optional Google and Yandex OAuth, and the authenticated MiryoLove AI endpoint.
 
-The website is a separate project in `../MiryoLove AI Web`. The server starts the existing Python model script as one persistent local runtime when the first authenticated AI request arrives.
+The website is a separate project in `../MiryoLove AI Web`. English is the default interface language; Russian is also supported. The server starts the existing Python model script as one persistent local runtime when the first authenticated AI request arrives.
 
 ## Products and language policy
 
 These are distinct products:
 
 - **MiryoLove Server** — this backend and REST API.
-- **MiryoLove AI Web** — the separate RU/EN browser app.
+- **MiryoLove AI Web** — the separate EN/RU browser app.
 - **MiryoLove AI** — the existing Python logic and ready model weights in their separate directories.
 - **MiryoLove Training** — a future model-training system, outside this project.
 
-English is planned as the primary language of the project (for development and interface). Russian and Ukrainian are additional interface languages. The primary language of the technical documentation is English. The current API does not yet store a preferred locale or localize its response messages.
+English is the primary language of the project and interface. Russian is the only additional interface language. The current API does not store a preferred locale or localize its response messages.
 
 ## Architecture
 
@@ -35,7 +35,7 @@ The HTTP layer is organized into routes, controllers, Zod schemas, middleware, s
 ## Implemented capabilities
 
 - Email/password registration and login; passwords are hashed with Argon2id.
-- Opaque server-side sessions in PostgreSQL, represented to the browser by an HTTP-only cookie.
+- Opaque server-side sessions in PostgreSQL, represented only by an HTTP-only `SameSite=Lax` cookie scoped to `/api` and marked `Secure` in production. The browser never receives the session token in JSON or stores it in Web Storage.
 - Current-user and profile read/update operations.
 - Create, list, read, rename, and delete a caller's own chats.
 - Create and list messages within an owned chat.
@@ -45,7 +45,7 @@ The HTTP layer is organized into routes, controllers, Zod schemas, middleware, s
 - Message source references in nullable PostgreSQL JSONB.
 - Health endpoints, request validation, JSON error responses, request logging, rate limits, and development OpenAPI/Swagger.
 
-The public message-creation endpoint accepts only the `user` role. `assistant` and `system` messages must only be created by trusted server-side code. The AI endpoint stores user and assistant messages only after model generation succeeds.
+The public message-creation endpoint accepts only the `user` role. `assistant` and `system` messages must only be created by trusted server-side code. The AI endpoint stores user and assistant messages only after model generation succeeds. Logout clears the cookie even when the server-side session has expired.
 
 ## Technology
 
@@ -54,7 +54,7 @@ The public message-creation endpoint accepts only the `user` role. `assistant` a
 - PostgreSQL 17 and Prisma ORM 7.
 - Zod, Argon2id, `cookie`, and opaque HMAC-hashed server-side sessions.
 - Optional Google OAuth 2.0 and Yandex ID OAuth.
-- Pino, Helmet, exact-origin CORS, and per-route rate limits.
+- Pino, Helmet, exact-origin CORS and backend Origin checks for allowed browser origins, plus per-route rate limits. CSRF protection combines `SameSite=Lax` cookies with the backend origin allowlist; state-changing application operations do not use GET routes.
 - Vitest and Supertest; ESLint and Prettier.
 - Swagger UI at `/docs` and OpenAPI JSON at `/openapi.json` in development only.
 
@@ -82,24 +82,30 @@ If `.env` already exists, preserve its values and update it manually as needed. 
 
 Configure a unique, high-entropy `SESSION_SECRET` before deploying. The development fallback is not suitable for production. Never commit passwords, database URLs containing credentials, OAuth secrets, session values, or generated dumps.
 
-| Variable                                                             | Purpose                                                                            |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                           | `development`, `test`, or `production`; defaults to `development`.                 |
-| `PORT`                                                               | HTTP listen port; defaults to `3001`.                                              |
-| `DATABASE_URL`                                                       | PostgreSQL connection URL.                                                         |
-| `SESSION_SECRET`                                                     | HMAC key used to hash session tokens in the database.                              |
-| `SESSION_TTL_DAYS`                                                   | Server-side session lifetime in days.                                              |
-| `CORS_ORIGINS`                                                       | Comma-separated list of exact allowed browser origins.                             |
-| `FRONTEND_URL`                                                       | Fixed redirect target after successful OAuth.                                      |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`    | Optional Google OAuth configuration.                                               |
-| `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_CALLBACK_URL`    | Optional Yandex ID configuration.                                                  |
-| `JSON_BODY_LIMIT`                                                    | Maximum JSON request body size.                                                    |
-| `AI_RUNTIME_PYTHON`                                                  | Existing Python interpreter; defaults to the MiryoLove AI `.venv`.                 |
-| `AI_RUNTIME_SCRIPT`                                                  | Existing `miryolove_ai.py` script path.                                            |
-| `MIRYO_MODEL_PATH`                                                   | Ready model directory; defaults to `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b`. |
-| `MIRYOWIKI_API`, `MIRYOWIKI_URL`                                     | MiryoWiki API and article base URLs.                                               |
-| `AI_RUNTIME_TIMEOUT_MS`                                              | Model startup/generation timeout; defaults to 20 minutes.                          |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Optional Compose PostgreSQL settings; keep them aligned with `DATABASE_URL`.       |
+| Variable                                                              | Purpose                                                                             |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                            | `development`, `test`, or `production`; defaults to `development`.                  |
+| `PORT`                                                                | HTTP listen port; defaults to `3001`.                                               |
+| `DATABASE_URL`                                                        | PostgreSQL connection URL.                                                          |
+| `SESSION_SECRET`                                                      | HMAC key used to hash session tokens in the database.                               |
+| `SESSION_TTL_DAYS`                                                    | Server-side session lifetime in days.                                               |
+| `CORS_ORIGINS`                                                        | Comma-separated list of exact allowed browser origins.                              |
+| `FRONTEND_URL`                                                        | Fixed redirect target after successful OAuth.                                       |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`     | Optional Google OAuth configuration.                                                |
+| `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_CALLBACK_URL`     | Optional Yandex ID configuration.                                                   |
+| `JSON_BODY_LIMIT`                                                     | Maximum JSON request body size.                                                     |
+| `AI_RUNTIME_PYTHON`                                                   | Existing Python interpreter; defaults to the MiryoLove AI `.venv`.                  |
+| `AI_RUNTIME_SCRIPT`                                                   | Existing `miryolove_ai.py` script path.                                             |
+| `MIRYO_MODEL_PATH`                                                    | Ready model directory; defaults to `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b`.  |
+| `MIRYOWIKI_API`, `MIRYOWIKI_URL`                                      | MiryoWiki API and article base URLs.                                                |
+| `AI_RUNTIME_TIMEOUT_MS`                                               | Model startup/generation timeout; defaults to 20 minutes.                           |
+| `AI_MAX_NEW_TOKENS`                                                   | Output-token ceiling; defaults to the existing 1,700-token setting.                 |
+| `AI_MAX_INPUT_CHARS`                                                  | Maximum current message size; defaults to 12,000 characters.                        |
+| `AI_MAX_HISTORY_MESSAGES`                                             | Maximum recent stored turns sent to the runtime; defaults to 32 messages.           |
+| `AI_MAX_SOURCE_CHARS`                                                 | Per-source excerpt ceiling; defaults to 2,400 characters.                           |
+| `AI_CONTEXT_TOKENS`                                                   | Optional context cap; `0` uses the model's `max_position_embeddings` (32,768 here). |
+| `AI_TEMPERATURE`, `AI_TOP_P`, `AI_DO_SAMPLE`, `AI_REPETITION_PENALTY` | Sampling settings; defaults match this model's generation config.                   |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`  | Optional Compose PostgreSQL settings; keep them aligned with `DATABASE_URL`.        |
 
 `DATABASE_URL` must connect to PostgreSQL. SQLite and MongoDB are not supported. Do not print `.env` contents in logs, tickets, or documentation.
 
@@ -267,20 +273,24 @@ In development, API documentation is available at `http://localhost:3001/docs`, 
 
 - Passwords are hashed using Argon2id. Login does not distinguish an unknown email from an incorrect password.
 - Session tokens are random and opaque. PostgreSQL stores only an HMAC hash; session lifetime is checked server-side and logout revokes the session.
-- Session cookies are `HttpOnly` and `SameSite=Lax`; `Secure` is set when `NODE_ENV=production`.
+- Session cookies are `HttpOnly`, `SameSite=Lax`, scoped to `/api`, and expire with the server-side session; `Secure` is set when `NODE_ENV=production`.
 - CORS uses exact configured origins with credentials; requests with an untrusted `Origin` are rejected.
 - Helmet adds security headers. JSON request size, endpoint rates, request bodies, path parameters, and query parameters are limited or validated.
 - OAuth state is checked against a short-lived HTTP-only cookie.
 - Errors do not return stack traces or database connection details. Request logs omit bodies, query strings, cookies, passwords, OAuth codes, and tokens.
 - The PostgreSQL Compose port binds to localhost by default.
 
-Before production, use HTTPS, a unique high-entropy secret from a secure configuration system, trusted exact origins, secured PostgreSQL credentials/networking, and reviewed backup/retention procedures. Evaluate CSRF protections for the final browser deployment topology; `SameSite=Lax` and Origin checks should not be weakened.
+Before production, use HTTPS, a unique high-entropy secret from a secure configuration system, trusted exact origins, secured PostgreSQL credentials/networking, and reviewed backup/retention procedures. CSRF protection relies on `SameSite=Lax` and backend Origin allowlisting; preserve both when changing the browser deployment topology.
 
 ## MiryoLove AI runtime and retrieval
 
 The backend starts the existing `../MiryoLove AI/miryolove_ai.py` in one persistent Python process on the first authenticated AI request. It loads the ready model from `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b` once and serializes generation requests. Configure the interpreter, script, model path, and timeout with the `AI_RUNTIME_*` and `MIRYO_MODEL_PATH` variables. The runtime is not started at backend boot; the first request can take several minutes while the model loads. The existing model script does not implement token streaming.
 
-The AI service checks chat ownership before loading history. External retrieval runs only for explicit encyclopedic/current-information prompts. It reuses the article search functions in the existing Python script, tries MiryoWiki and Wikipedia in the question language, and passes a bounded article excerpt and source identity to the model. Only the cleaned search phrase is sent to the public APIs; previous messages and account information are not sent to them. If a source is unavailable or has no matching article, the model can answer without that source. Only sources whose article text was included in the model context are returned and persisted.
+The AI service checks chat ownership before loading up to 32 prior messages. The runtime tokenizes the full chat-template prompt, uses the model config's 32,768-token context limit (the tokenizer advertises 131,072, which is not the model limit), prunes oldest history first, then reduces or drops source excerpts to reserve configured output tokens. The current question is added once after the history. Generation uses the model's EOS IDs and inference mode; temperature, top-p, sampling, repetition penalty, and token/character ceilings are configurable.
+
+The assistant answers general questions as well as programming, Linux, databases, science, history, translation, learning, and project discussion. It identifies Russian or English from the current message. Knowledge retrieval runs only for explicit reference/current-information questions; search titles must match at least 80% of cleaned query terms, reducing unrelated partial-word matches. Only relevant bounded extracts are included. If no relevant source is found or a source is unavailable, the model can still answer without claiming citations. Sources are returned only if their text remains in the final prompt.
+
+The `/api/auth/cookie-policy` endpoint reports the actual session and short-lived OAuth-state cookies (names, contents, flags, host-only scope, paths, and retention), plus whether analytics or advertising cookies are configured. Cookie questions are answered from that server-provided policy, not from a guessed prompt.
 
 The additive migration `20261101190000_add_message_sources` adds a nullable JSONB column; apply it with `npm run db:deploy` after verifying `DATABASE_URL`. OAuth providers work only after server-side client credentials and registered callback URLs are configured. The separate frontend's run and Caddy instructions are in `../MiryoLove AI Web/README.md`.
 
@@ -310,4 +320,3 @@ tests/
 ## Documentation languages
 
 - Russian: [README.ru.md](README.ru.md)
-- Ukrainian: [README.uk.md](README.uk.md)

@@ -230,7 +230,11 @@ describe("MiryoLove Server API", () => {
     const cookie = response.headers["set-cookie"][0] as string;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/api");
+    expect(cookie).toContain("Expires=");
     expect(cookie.toLowerCase().includes("; secure")).toBe(env.NODE_ENV === "production");
+    expect(response.body).not.toHaveProperty("token");
+    expect(response.body).not.toHaveProperty("expiresAt");
     return cookie.split(";")[0] as string;
   }
 
@@ -238,6 +242,31 @@ describe("MiryoLove Server API", () => {
     await request(app)
       .get("/api/auth/providers")
       .expect(200, { providers: { google: true, yandex: true } });
+  });
+
+  it("reports the actual application cookie policy without exposing secret values", async () => {
+    const response = await request(app).get("/api/auth/cookie-policy").expect(200);
+    expect(response.body.cookies.session).toMatchObject({
+      name: "miryolove_session",
+      contents: "opaque_session_token",
+      httpOnly: true,
+      secure: env.NODE_ENV === "production",
+      sameSite: "Lax",
+      path: "/api",
+      domain: null,
+      maxAgeDays: env.SESSION_TTL_DAYS,
+    });
+    expect(response.body.cookies.oauthState).toMatchObject({
+      names: ["miryolove_oauth_google", "miryolove_oauth_yandex"],
+      contents: "oauth_state_value",
+      httpOnly: true,
+      secure: env.NODE_ENV === "production",
+      sameSite: "Lax",
+      path: "/api/auth/{provider}",
+      domain: null,
+      maxAgeSeconds: 600,
+    });
+    expect(response.body.cookies).toMatchObject({ analytics: false, advertising: false });
   });
 
   it("returns service and database health without disclosing database details", async () => {
@@ -283,11 +312,12 @@ describe("MiryoLove Server API", () => {
 
   it("requires auth for current-user endpoints and invalidates the session on logout", async () => {
     await request(app).get("/api/auth/me").expect(401);
-    await request(app).post("/api/auth/logout").expect(401);
-    await request(app)
+    const expiredLogout = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", "miryolove_session=invalid-token")
-      .expect(401);
+      .expect(204);
+    expect(expiredLogout.headers["set-cookie"][0]).toContain("Max-Age=0");
+    expect(expiredLogout.headers["set-cookie"][0]).toContain("Path=/api");
     await request(app)
       .get("/api/auth/me")
       .set("Cookie", "miryolove_session=invalid-token")
@@ -304,6 +334,19 @@ describe("MiryoLove Server API", () => {
     expect(logout.headers["set-cookie"][0]).toContain("Max-Age=0");
     await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
     await request(app).get("/api/users/me").set("Cookie", cookie).expect(401);
+  });
+
+  it("rejects state-changing requests from origins outside the configured allowlist", async () => {
+    await request(app)
+      .post("/api/auth/login")
+      .set("Origin", "https://attacker.example")
+      .send({ email: "person@example.com", password: "a-long-test-password" })
+      .expect(403, {
+        error: {
+          code: "ORIGIN_NOT_ALLOWED",
+          message: "This request origin is not allowed.",
+        },
+      });
   });
 
   it("reads and updates only allowed profile fields", async () => {

@@ -83,14 +83,23 @@ export const openApiDocument = {
           "401": { description: "Authentication is required." },
         },
       },
-      "/api/auth/providers": {
-        get: {
-          summary: "List available OAuth providers",
-          responses: {
-            "200": {
-              description:
-                "Whether each OAuth provider is configured; no credentials are returned.",
-            },
+    },
+    "/api/auth/providers": {
+      get: {
+        summary: "List available OAuth providers",
+        responses: {
+          "200": {
+            description: "Whether each OAuth provider is configured; no credentials are returned.",
+          },
+        },
+      },
+    },
+    "/api/auth/cookie-policy": {
+      get: {
+        summary: "Describe application cookies",
+        responses: {
+          "200": {
+            description: "Cookie names, purposes, attributes, and retention periods.",
           },
         },
       },

@@ -15,6 +15,31 @@ interface KnowledgeSource {
   url: string;
 }
 
+interface CookiePolicy {
+  session: {
+    name: string;
+    contents: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: string;
+    path: string;
+    domain: null;
+    maxAgeDays: number;
+  };
+  oauthState: {
+    names: readonly string[];
+    contents: string;
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: string;
+    path: string;
+    domain: null;
+    maxAgeSeconds: number;
+  };
+  analytics: boolean;
+  advertising: boolean;
+}
+
 interface RuntimeReply {
   type?: string;
   id?: string;
@@ -36,12 +61,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isKnowledgeSource(value: unknown): value is KnowledgeSource {
-  return (
+  if (
     isRecord(value) &&
     typeof value.source === "string" &&
+    value.source.length > 0 &&
     typeof value.title === "string" &&
+    value.title.length > 0 &&
     typeof value.url === "string"
-  );
+  ) {
+    try {
+      const url = new URL(value.url);
+      return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export class AIRuntimeService {
@@ -58,8 +93,9 @@ export class AIRuntimeService {
   generate(
     message: string,
     history: ConversationMessage[],
+    cookiePolicy: CookiePolicy,
   ): Promise<{ content: string; sources: KnowledgeSource[] }> {
-    const operation = this.queue.then(() => this.request(message, history));
+    const operation = this.queue.then(() => this.request(message, history, cookiePolicy));
     this.queue = operation.then(
       () => undefined,
       () => undefined,
@@ -97,6 +133,7 @@ export class AIRuntimeService {
   private async request(
     message: string,
     history: ConversationMessage[],
+    cookiePolicy: CookiePolicy,
   ): Promise<{ content: string; sources: KnowledgeSource[] }> {
     await this.start();
     const child = this.child;
@@ -114,13 +151,16 @@ export class AIRuntimeService {
       }, env.AI_RUNTIME_TIMEOUT_MS);
       this.pending = { id, resolve, reject, timer };
 
-      child.stdin.write(`${JSON.stringify({ id, message, history })}\n`, (error?: Error | null) => {
-        if (error && this.pending?.id === id) {
-          clearTimeout(timer);
-          this.pending = null;
-          reject(new AppError(503, "AI_RUNTIME_UNAVAILABLE", "The model runtime stopped."));
-        }
-      });
+      child.stdin.write(
+        `${JSON.stringify({ id, message, history, cookiePolicy })}\n`,
+        (error?: Error | null) => {
+          if (error && this.pending?.id === id) {
+            clearTimeout(timer);
+            this.pending = null;
+            reject(new AppError(503, "AI_RUNTIME_UNAVAILABLE", "The model runtime stopped."));
+          }
+        },
+      );
     });
   }
 
@@ -139,6 +179,15 @@ export class AIRuntimeService {
         MIRYO_MODEL: env.MIRYO_MODEL_PATH,
         MIRYOWIKI_API: env.MIRYOWIKI_API,
         MIRYOWIKI_URL: env.MIRYOWIKI_URL,
+        AI_MAX_NEW_TOKENS: String(env.AI_MAX_NEW_TOKENS),
+        AI_MAX_INPUT_CHARS: String(env.AI_MAX_INPUT_CHARS),
+        AI_MAX_HISTORY_MESSAGES: String(env.AI_MAX_HISTORY_MESSAGES),
+        AI_MAX_SOURCE_CHARS: String(env.AI_MAX_SOURCE_CHARS),
+        AI_CONTEXT_TOKENS: String(env.AI_CONTEXT_TOKENS),
+        AI_TEMPERATURE: String(env.AI_TEMPERATURE),
+        AI_TOP_P: String(env.AI_TOP_P),
+        AI_DO_SAMPLE: String(env.AI_DO_SAMPLE),
+        AI_REPETITION_PENALTY: String(env.AI_REPETITION_PENALTY),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -250,6 +299,7 @@ export class AIRuntimeService {
       if (
         reply.ok === true &&
         typeof reply.content === "string" &&
+        reply.content.trim().length > 0 &&
         Array.isArray(reply.sources) &&
         reply.sources.every(isKnowledgeSource)
       ) {
