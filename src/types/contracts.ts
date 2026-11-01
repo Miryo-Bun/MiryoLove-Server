@@ -1,3 +1,5 @@
+import type { Prisma } from "../generated/prisma/client.js";
+
 export interface PublicUser {
   id: string;
   email: string;
@@ -42,6 +44,7 @@ export interface MessageRecord {
   chatId: string;
   role: "user" | "assistant" | "system";
   content: string;
+  sources: Prisma.JsonValue | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,16 +58,33 @@ export interface ChatServiceContract {
   createMessage(
     userId: string,
     chatId: string,
-    input: { role: "user" | "assistant" | "system"; content: string },
+    input: {
+      role: "user" | "assistant" | "system";
+      content: string;
+      sources?: Prisma.InputJsonValue;
+    },
   ): Promise<MessageRecord>;
+  createExchange(
+    userId: string,
+    chatId: string,
+    input: {
+      userMessage: string;
+      assistantMessage: string;
+      sources?: Prisma.InputJsonValue;
+    },
+  ): Promise<[MessageRecord, MessageRecord]>;
   listMessages(userId: string, chatId: string, limit: number): Promise<MessageRecord[]>;
 }
 
 export interface OAuthServiceContract {
+  isConfigured(provider: "google" | "yandex"): boolean;
   getAuthorizationUrl(provider: "google" | "yandex", state: string): string;
   authenticate(provider: "google" | "yandex", code: string): Promise<SessionResult>;
 }
 
 export interface AIServiceContract {
-  generateResponse(): Promise<never>;
+  generateResponse(input: { userId: string; chatId: string; message: string }): Promise<{
+    content: string;
+    sources: Array<{ source: string; title: string; url: string }>;
+  }>;
 }

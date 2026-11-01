@@ -7,7 +7,8 @@ import { AuthService } from "./services/auth.service.js";
 import { ChatService } from "./services/chat.service.js";
 import { OAuthService } from "./services/oauth.service.js";
 import { ProfileService } from "./services/profile.service.js";
-import { UnconfiguredAIService } from "./services/ai.service.js";
+import { MiryoLoveAIService } from "./services/ai.service.js";
+import { aiRuntime } from "./services/ai-runtime.service.js";
 import { AppError } from "./utils/errors.js";
 
 const authService = new AuthService();
@@ -16,7 +17,7 @@ const app = createApp({
   oauthService: new OAuthService(authService),
   profileService: new ProfileService(),
   chatService: new ChatService(),
-  aiService: new UnconfiguredAIService(),
+  aiService: new MiryoLoveAIService(new ChatService()),
   async checkDatabase() {
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -43,6 +44,15 @@ async function shutdown(signal: string): Promise<void> {
   server.close(async (error) => {
     if (error) {
       logger.error({ errorName: error.name }, "HTTP server shutdown failed");
+      process.exitCode = 1;
+    }
+    try {
+      await aiRuntime.close();
+    } catch (runtimeError) {
+      logger.error(
+        { errorName: runtimeError instanceof Error ? runtimeError.name : "UnknownError" },
+        "AI runtime shutdown failed",
+      );
       process.exitCode = 1;
     }
     try {

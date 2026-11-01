@@ -14,6 +14,7 @@ export function createAuthRoutes(
   router.post("/login", createRateLimiter(10, 15 * 60 * 1000), controller.login);
   router.post("/logout", requireAuth(authService), controller.logout);
   router.get("/me", requireAuth(authService), controller.me);
+  router.get("/providers", controller.oauthProviders);
   for (const provider of ["google", "yandex"] as const) {
     const limiter = createRateLimiter(10, 15 * 60 * 1000);
     router.get(`/${provider}`, limiter, controller.oauthStart(provider));

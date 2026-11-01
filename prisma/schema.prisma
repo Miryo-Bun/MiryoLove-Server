@@ -19,29 +19,29 @@ enum MessageRole {
 }
 
 model User {
-  id           String         @id @default(uuid()) @db.Uuid
-  email        String         @unique @db.VarChar(320)
-  passwordHash String?        @map("password_hash") @db.VarChar(255)
-  displayName  String         @map("display_name") @db.VarChar(80)
-  avatarUrl    String?        @map("avatar_url") @db.VarChar(2048)
-  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
-  lastLoginAt  DateTime?      @map("last_login_at") @db.Timestamptz(3)
+  id            String         @id @default(uuid()) @db.Uuid
+  email         String         @unique @db.VarChar(320)
+  passwordHash  String?        @map("password_hash") @db.VarChar(255)
+  displayName   String         @map("display_name") @db.VarChar(80)
+  avatarUrl     String?        @map("avatar_url") @db.VarChar(2048)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastLoginAt   DateTime?      @map("last_login_at") @db.Timestamptz(3)
   oauthAccounts OAuthAccount[]
-  sessions     Session[]
-  chats        Chat[]
+  sessions      Session[]
+  chats         Chat[]
 
   @@map("users")
 }
 
 model OAuthAccount {
-  id                String       @id @default(uuid()) @db.Uuid
-  userId            String       @map("user_id") @db.Uuid
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String        @map("user_id") @db.Uuid
   provider          OAuthProvider
-  providerAccountId String       @map("provider_account_id") @db.VarChar(255)
-  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerAccountId String        @map("provider_account_id") @db.VarChar(255)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
   @@index([userId])
@@ -79,6 +79,7 @@ model Message {
   chatId    String      @map("chat_id") @db.Uuid
   role      MessageRole
   content   String      @db.Text
+  sources   Json?
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
   chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)

@@ -83,6 +83,17 @@ export const openApiDocument = {
           "401": { description: "Authentication is required." },
         },
       },
+      "/api/auth/providers": {
+        get: {
+          summary: "List available OAuth providers",
+          responses: {
+            "200": {
+              description:
+                "Whether each OAuth provider is configured; no credentials are returned.",
+            },
+          },
+        },
+      },
     },
     "/api/auth/google": {
       get: {
@@ -94,7 +105,9 @@ export const openApiDocument = {
       get: {
         summary: "Complete Google OAuth",
         responses: {
-          "302": { description: "Sign-in succeeded; redirect to the configured frontend." },
+          "302": {
+            description: "Redirect to the configured frontend after success or cancellation.",
+          },
           "400": { description: "OAuth state validation failed." },
         },
       },
@@ -109,7 +122,9 @@ export const openApiDocument = {
       get: {
         summary: "Complete Yandex ID OAuth",
         responses: {
-          "302": { description: "Sign-in succeeded; redirect to the configured frontend." },
+          "302": {
+            description: "Redirect to the configured frontend after success or cancellation.",
+          },
           "400": { description: "OAuth state validation failed." },
         },
       },
@@ -211,14 +226,58 @@ export const openApiDocument = {
     },
     "/api/ai/chat": {
       post: {
-        summary: "Future AI chat endpoint",
+        summary: "Generate an authenticated AI chat response",
         description:
-          "Currently returns AI_NOT_CONFIGURED; no model or external AI API is connected.",
+          "Calls the persistent local MiryoLove AI Python runtime. Conversation messages and returned source references are saved in the selected owned chat.",
         security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["chatId", "message"],
+                properties: {
+                  chatId: { type: "string", format: "uuid" },
+                  message: { type: "string", minLength: 1, maxLength: 12000 },
+                },
+              },
+            },
+          },
+        },
         responses: {
+          "200": {
+            description: "Generated response and sources used in its model context.",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["content", "sources"],
+                  properties: {
+                    content: { type: "string" },
+                    sources: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["source", "title", "url"],
+                        properties: {
+                          source: { type: "string" },
+                          title: { type: "string" },
+                          url: { type: "string", format: "uri" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           "400": { description: "Invalid request input." },
           "401": { description: "Authentication is required." },
-          "503": { description: "AI_NOT_CONFIGURED." },
+          "404": { description: "Chat not found." },
+          "503": { description: "Model runtime unavailable or generation failed." },
+          "504": { description: "Model response timed out." },
         },
       },
     },

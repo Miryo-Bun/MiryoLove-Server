@@ -18,6 +18,16 @@ const envSchema = z.object({
   YANDEX_CLIENT_SECRET: z.string().default(""),
   YANDEX_CALLBACK_URL: z.string().url().default("http://localhost:3001/api/auth/yandex/callback"),
   JSON_BODY_LIMIT: z.string().default("1mb"),
+  AI_RUNTIME_PYTHON: z
+    .string()
+    .default("/mnt/Manchild/Project/MiryoLove/MiryoLove AI/.venv/bin/python"),
+  AI_RUNTIME_SCRIPT: z
+    .string()
+    .default("/mnt/Manchild/Project/MiryoLove/MiryoLove AI/miryolove_ai.py"),
+  MIRYO_MODEL_PATH: z.string().default("/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b"),
+  MIRYOWIKI_API: z.string().url().default("https://wiki.miryolove.org/api.php"),
+  MIRYOWIKI_URL: z.string().url().default("https://wiki.miryolove.org"),
+  AI_RUNTIME_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(3_600_000).default(1_200_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

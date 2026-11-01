@@ -32,6 +32,7 @@ export function createAuthController(
   me: RequestHandler;
   oauthStart(provider: "google" | "yandex"): RequestHandler;
   oauthCallback(provider: "google" | "yandex"): RequestHandler;
+  oauthProviders: RequestHandler;
 } {
   return {
     register: async (request, response) => {
@@ -80,25 +81,32 @@ export function createAuthController(
       setOAuthStateCookie(response, provider, state, isSecure);
       response.redirect(302, authorizationUrl);
     },
+    oauthProviders: (_request, response) => {
+      response.json({
+        providers: {
+          google: oauthService.isConfigured("google"),
+          yandex: oauthService.isConfigured("yandex"),
+        },
+      });
+    },
     oauthCallback: (provider) => async (request, response) => {
       const callback = validate(oauthCallbackSchema, request.query);
       const cookieState = readOAuthStateCookie(request.headers.cookie, provider);
       clearOAuthStateCookie(response, provider, isSecure);
 
+      if (!validateOAuthState(callback.state, cookieState)) {
+        logger.warn({ provider, event: "oauth_state_invalid" }, "OAuth state validation failed");
+        throw new AppError(400, "OAUTH_STATE_INVALID", "OAuth state validation failed.");
+      }
       if (callback.error) {
         logger.warn(
           { provider, event: "oauth_provider_rejected" },
           "OAuth provider rejected sign-in",
         );
-        throw new AppError(
-          401,
-          "OAUTH_REJECTED",
-          "Sign-in with the identity provider was cancelled or denied.",
-        );
-      }
-      if (!validateOAuthState(callback.state, cookieState)) {
-        logger.warn({ provider, event: "oauth_state_invalid" }, "OAuth state validation failed");
-        throw new AppError(400, "OAUTH_STATE_INVALID", "OAuth state validation failed.");
+        const destination = new URL(env.FRONTEND_URL);
+        destination.searchParams.set("oauthError", "OAUTH_REJECTED");
+        response.redirect(302, destination.toString());
+        return;
       }
       if (!callback.code) {
         throw new AppError(
