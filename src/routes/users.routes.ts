@@ -12,5 +12,6 @@ export function createUsersRoutes(
   router.use(requireAuth(authService));
   router.get("/me", controller.getMe);
   router.patch("/me", controller.updateMe);
+  router.delete("/me", controller.deleteMe);
   return router;
 }

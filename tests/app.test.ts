@@ -3,6 +3,10 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
+import {
+  createRuntimeEnvironment,
+  hasAIQueueCapacity,
+} from "../src/services/ai-runtime.service.js";
 import type { Prisma } from "../src/generated/prisma/client.js";
 import type {
   AIServiceContract,
@@ -78,7 +82,10 @@ class MemoryAuth implements AuthServiceContract {
 }
 
 class MemoryProfiles implements ProfileServiceContract {
-  constructor(private readonly auth: MemoryAuth) {}
+  constructor(
+    private readonly auth: MemoryAuth,
+    private readonly chats: MemoryChats,
+  ) {}
 
   async get(userId: string): Promise<PublicUser> {
     const user = this.auth.users.get(userId);
@@ -94,6 +101,20 @@ class MemoryProfiles implements ProfileServiceContract {
     const updated = { ...user, ...input };
     this.auth.users.set(userId, updated);
     return updated;
+  }
+
+  async delete(userId: string): Promise<void> {
+    this.auth.users.delete(userId);
+    this.auth.credentials.delete(userId);
+    for (const [token, sessionUserId] of this.auth.sessions) {
+      if (sessionUserId === userId) this.auth.sessions.delete(token);
+    }
+    for (const [chatId, chat] of this.chats.chats) {
+      if (chat.userId === userId) {
+        this.chats.chats.delete(chatId);
+        this.chats.messages.delete(chatId);
+      }
+    }
   }
 }
 
@@ -210,7 +231,7 @@ describe("MiryoLove Server API", () => {
     app = createApp({
       authService: auth,
       oauthService: new MemoryOAuth(auth),
-      profileService: new MemoryProfiles(auth),
+      profileService: new MemoryProfiles(auth, chats),
       chatService: chats,
       aiService: {
         async generateResponse() {
@@ -275,7 +296,7 @@ describe("MiryoLove Server API", () => {
     const unavailable = createApp({
       authService: auth,
       oauthService: new MemoryOAuth(auth),
-      profileService: new MemoryProfiles(auth),
+      profileService: new MemoryProfiles(auth, chats),
       chatService: chats,
       aiService: {
         async generateResponse() {
@@ -349,6 +370,33 @@ describe("MiryoLove Server API", () => {
       });
   });
 
+  describe("AI runtime environment", () => {
+    it("bounds the serialized AI request queue", () => {
+      expect(hasAIQueueCapacity(0, 5)).toBe(true);
+      expect(hasAIQueueCapacity(4, 5)).toBe(true);
+      expect(hasAIQueueCapacity(5, 5)).toBe(false);
+    });
+
+    it("passes only runtime configuration and a small set of non-secret system variables", () => {
+      const childEnv = createRuntimeEnvironment({
+        PATH: "/usr/bin",
+        HOME: "/home/test",
+        DATABASE_URL: "must-not-be-passed",
+        SESSION_SECRET: "must-not-be-passed",
+        GOOGLE_CLIENT_SECRET: "must-not-be-passed",
+        HTTPS_PROXY: "must-not-be-passed",
+      });
+
+      expect(childEnv.PATH).toBe("/usr/bin");
+      expect(childEnv.HOME).toBe("/home/test");
+      expect(childEnv.MIRYO_MODEL).toBeTruthy();
+      expect(childEnv.DATABASE_URL).toBeUndefined();
+      expect(childEnv.SESSION_SECRET).toBeUndefined();
+      expect(childEnv.GOOGLE_CLIENT_SECRET).toBeUndefined();
+      expect(childEnv.HTTPS_PROXY).toBeUndefined();
+    });
+  });
+
   it("reads and updates only allowed profile fields", async () => {
     const cookie = await register();
     const profile = await request(app).get("/api/users/me").set("Cookie", cookie).expect(200);
@@ -364,6 +412,36 @@ describe("MiryoLove Server API", () => {
       .set("Cookie", cookie)
       .send({ id: randomUUID() })
       .expect(400);
+  });
+
+  it("deletes the authenticated account and invalidates its sessions", async () => {
+    await request(app).delete("/api/users/me").expect(401);
+    const cookie = await register();
+    const user = await request(app).get("/api/auth/me").set("Cookie", cookie).expect(200);
+    const chat = await request(app)
+      .post("/api/chats")
+      .set("Cookie", cookie)
+      .send({ title: "Deleted with account" })
+      .expect(201);
+    const otherCookie = await register("other@example.com");
+    await request(app)
+      .delete(`/api/users/${user.body.user.id as string}`)
+      .set("Cookie", otherCookie)
+      .expect(404);
+    await request(app)
+      .get(`/api/chats/${chat.body.chat.id as string}`)
+      .set("Cookie", cookie)
+      .expect(200);
+    const deleted = await request(app).delete("/api/users/me").set("Cookie", cookie).expect(204);
+    expect(deleted.headers["set-cookie"][0]).toContain("Max-Age=0");
+    await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
+    await request(app).get("/api/users/me").set("Cookie", cookie).expect(401);
+    expect(chats.chats.has(chat.body.chat.id as string)).toBe(false);
+    const otherProfile = await request(app)
+      .get("/api/auth/me")
+      .set("Cookie", otherCookie)
+      .expect(200);
+    expect(otherProfile.body.user.email).toBe("other@example.com");
   });
 
   it("creates, lists, reads, updates, and deletes an owned chat", async () => {
@@ -481,7 +559,7 @@ describe("MiryoLove Server API", () => {
     const aiApp = createApp({
       authService: auth,
       oauthService: new MemoryOAuth(auth),
-      profileService: new MemoryProfiles(auth),
+      profileService: new MemoryProfiles(auth, chats),
       chatService: chats,
       aiService: {
         async generateResponse(input) {
@@ -507,5 +585,30 @@ describe("MiryoLove Server API", () => {
       content: "Generated by the model.",
       sources: [{ source: "Wikipedia", title: "Test", url: "https://en.wikipedia.org/wiki/Test" }],
     });
+  });
+
+  it("authenticates and validates AI requests before invoking the runtime", async () => {
+    await request(app)
+      .post("/api/ai/chat")
+      .send({ chatId: randomUUID(), message: "Hello" })
+      .expect(401);
+
+    const cookie = await register();
+    const chatId = randomUUID();
+    await request(app)
+      .post("/api/ai/chat")
+      .set("Cookie", cookie)
+      .send({ chatId: "not-a-uuid", message: "Hello" })
+      .expect(400);
+    await request(app)
+      .post("/api/ai/chat")
+      .set("Cookie", cookie)
+      .send({ chatId, message: "   " })
+      .expect(400);
+    await request(app)
+      .post("/api/ai/chat")
+      .set("Cookie", cookie)
+      .send({ chatId, message: "x".repeat(env.AI_MAX_INPUT_CHARS + 1) })
+      .expect(400);
   });
 });

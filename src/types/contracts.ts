@@ -29,6 +29,7 @@ export interface ProfileServiceContract {
     userId: string,
     input: { displayName?: string; avatarUrl?: string | null },
   ): Promise<PublicUser>;
+  delete(userId: string): Promise<void>;
 }
 
 export interface ChatRecord {

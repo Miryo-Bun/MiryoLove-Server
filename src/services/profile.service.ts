@@ -30,4 +30,9 @@ export class ProfileService {
     });
     return toPublicUser(user);
   }
+
+  async delete(userId: string): Promise<void> {
+    const result = await prisma.user.deleteMany({ where: { id: userId } });
+    if (result.count !== 1) throw new AppError(404, "USER_NOT_FOUND", "User was not found.");
+  }
 }

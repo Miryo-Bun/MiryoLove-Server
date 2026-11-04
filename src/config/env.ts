@@ -4,9 +4,7 @@ import { z } from "zod";
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  DATABASE_URL: z
-    .string()
-    .default("postgresql://miryo_user:miryo_password@localhost:5432/miryolove?schema=public"),
+  DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32).default("local-development-secret-change-before-production"),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:5173"),
@@ -28,6 +26,7 @@ const envSchema = z.object({
   MIRYOWIKI_API: z.string().url().default("https://wiki.miryolove.org/api.php"),
   MIRYOWIKI_URL: z.string().url().default("https://wiki.miryolove.org"),
   AI_RUNTIME_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(3_600_000).default(1_200_000),
+  AI_MAX_PENDING_REQUESTS: z.coerce.number().int().min(1).max(100).default(5),
   AI_MAX_NEW_TOKENS: z.coerce.number().int().min(64).max(8192).default(1700),
   AI_MAX_INPUT_CHARS: z.coerce.number().int().min(1000).max(100_000).default(12_000),
   AI_MAX_HISTORY_MESSAGES: z.coerce.number().int().min(2).max(100).default(32),

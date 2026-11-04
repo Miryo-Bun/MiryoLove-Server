@@ -15,4 +15,5 @@ db-dumps/
 *.sql.gz
 src/generated/
 postgres-data/
+/backups/
 .DS_Store
