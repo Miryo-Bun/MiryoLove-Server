@@ -1,12 +1,13 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL must be set before running Prisma commands.");
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: { path: "prisma/migrations" },
-  datasource: {
-    url:
-      process.env.DATABASE_URL ??
-      "postgresql://miryo_user:miryo_password@localhost:5432/miryolove?schema=public",
-  },
+  datasource: { url: databaseUrl },
 });

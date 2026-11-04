@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-miryo_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miryo_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a unique POSTGRES_PASSWORD before starting PostgreSQL}
       POSTGRES_DB: ${POSTGRES_DB:-miryolove}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

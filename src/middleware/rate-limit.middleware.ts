@@ -1,10 +1,14 @@
 import { rateLimit } from "express-rate-limit";
 import { env } from "../config/env.js";
 
-export function createRateLimiter(limit: number, windowMs: number): ReturnType<typeof rateLimit> {
+export function createRateLimiter(
+  limit: number,
+  windowMs: number,
+  testLimit?: number,
+): ReturnType<typeof rateLimit> {
   return rateLimit({
     windowMs,
-    limit: env.NODE_ENV === "test" ? 10_000 : limit,
+    limit: env.NODE_ENV === "test" ? (testLimit ?? 10_000) : limit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     handler: (_request, response) => {

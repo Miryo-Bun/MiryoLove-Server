@@ -79,6 +79,47 @@ function isKnowledgeSource(value: unknown): value is KnowledgeSource {
   return false;
 }
 
+export function createRuntimeEnvironment(
+  parentEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = {};
+  for (const name of [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "CUDA_VISIBLE_DEVICES",
+    "CUDA_DEVICE_ORDER",
+    "LD_LIBRARY_PATH",
+    "HF_HOME",
+    "TRANSFORMERS_CACHE",
+    "TORCH_HOME",
+  ]) {
+    const value = parentEnv[name];
+    if (value !== undefined) childEnv[name] = value;
+  }
+  return {
+    ...childEnv,
+    MIRYO_MODEL: env.MIRYO_MODEL_PATH,
+    MIRYOWIKI_API: env.MIRYOWIKI_API,
+    MIRYOWIKI_URL: env.MIRYOWIKI_URL,
+    AI_MAX_NEW_TOKENS: String(env.AI_MAX_NEW_TOKENS),
+    AI_MAX_INPUT_CHARS: String(env.AI_MAX_INPUT_CHARS),
+    AI_MAX_HISTORY_MESSAGES: String(env.AI_MAX_HISTORY_MESSAGES),
+    AI_MAX_SOURCE_CHARS: String(env.AI_MAX_SOURCE_CHARS),
+    AI_CONTEXT_TOKENS: String(env.AI_CONTEXT_TOKENS),
+    AI_TEMPERATURE: String(env.AI_TEMPERATURE),
+    AI_TOP_P: String(env.AI_TOP_P),
+    AI_DO_SAMPLE: String(env.AI_DO_SAMPLE),
+    AI_REPETITION_PENALTY: String(env.AI_REPETITION_PENALTY),
+  };
+}
+
+export function hasAIQueueCapacity(pendingRequests: number, maximum: number): boolean {
+  return pendingRequests < maximum;
+}
+
 export class AIRuntimeService {
   private child: ChildProcessWithoutNullStreams | null = null;
   private startupPromise: Promise<void> | null = null;
@@ -89,18 +130,27 @@ export class AIRuntimeService {
   private outputBuffer = "";
   private queue: Promise<void> = Promise.resolve();
   private stopping: Promise<void> = Promise.resolve();
+  private pendingRequests = 0;
 
   generate(
     message: string,
     history: ConversationMessage[],
     cookiePolicy: CookiePolicy,
   ): Promise<{ content: string; sources: KnowledgeSource[] }> {
+    if (!hasAIQueueCapacity(this.pendingRequests, env.AI_MAX_PENDING_REQUESTS)) {
+      return Promise.reject(
+        new AppError(503, "AI_RUNTIME_BUSY", "The model runtime is busy. Please try again later."),
+      );
+    }
+    this.pendingRequests += 1;
     const operation = this.queue.then(() => this.request(message, history, cookiePolicy));
     this.queue = operation.then(
       () => undefined,
       () => undefined,
     );
-    return operation;
+    return operation.finally(() => {
+      this.pendingRequests -= 1;
+    });
   }
 
   async close(): Promise<void> {
@@ -174,21 +224,7 @@ export class AIRuntimeService {
     if (this.startupPromise) return this.startupPromise;
 
     const child = spawn(env.AI_RUNTIME_PYTHON, [env.AI_RUNTIME_SCRIPT, "--serve"], {
-      env: {
-        ...process.env,
-        MIRYO_MODEL: env.MIRYO_MODEL_PATH,
-        MIRYOWIKI_API: env.MIRYOWIKI_API,
-        MIRYOWIKI_URL: env.MIRYOWIKI_URL,
-        AI_MAX_NEW_TOKENS: String(env.AI_MAX_NEW_TOKENS),
-        AI_MAX_INPUT_CHARS: String(env.AI_MAX_INPUT_CHARS),
-        AI_MAX_HISTORY_MESSAGES: String(env.AI_MAX_HISTORY_MESSAGES),
-        AI_MAX_SOURCE_CHARS: String(env.AI_MAX_SOURCE_CHARS),
-        AI_CONTEXT_TOKENS: String(env.AI_CONTEXT_TOKENS),
-        AI_TEMPERATURE: String(env.AI_TEMPERATURE),
-        AI_TOP_P: String(env.AI_TOP_P),
-        AI_DO_SAMPLE: String(env.AI_DO_SAMPLE),
-        AI_REPETITION_PENALTY: String(env.AI_REPETITION_PENALTY),
-      },
+      env: createRuntimeEnvironment(),
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
@@ -223,7 +259,10 @@ export class AIRuntimeService {
     child.stderr.on("data", (chunk: Buffer) => {
       const diagnostic = chunk.toString("utf8").trim();
       if (diagnostic) {
-        logger.debug({ diagnostic: diagnostic.slice(0, 500) }, "AI runtime diagnostic");
+        logger.debug(
+          { diagnosticBytes: Buffer.byteLength(diagnostic) },
+          "AI runtime diagnostic output suppressed",
+        );
       }
     });
     child.once("error", (error) => {

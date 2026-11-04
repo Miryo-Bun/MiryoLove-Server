@@ -82,30 +82,33 @@ If `.env` already exists, preserve its values and update it manually as needed. 
 
 Configure a unique, high-entropy `SESSION_SECRET` before deploying. The development fallback is not suitable for production. Never commit passwords, database URLs containing credentials, OAuth secrets, session values, or generated dumps.
 
-| Variable                                                              | Purpose                                                                             |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                            | `development`, `test`, or `production`; defaults to `development`.                  |
-| `PORT`                                                                | HTTP listen port; defaults to `3001`.                                               |
-| `DATABASE_URL`                                                        | PostgreSQL connection URL.                                                          |
-| `SESSION_SECRET`                                                      | HMAC key used to hash session tokens in the database.                               |
-| `SESSION_TTL_DAYS`                                                    | Server-side session lifetime in days.                                               |
-| `CORS_ORIGINS`                                                        | Comma-separated list of exact allowed browser origins.                              |
-| `FRONTEND_URL`                                                        | Fixed redirect target after successful OAuth.                                       |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`     | Optional Google OAuth configuration.                                                |
-| `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_CALLBACK_URL`     | Optional Yandex ID configuration.                                                   |
-| `JSON_BODY_LIMIT`                                                     | Maximum JSON request body size.                                                     |
-| `AI_RUNTIME_PYTHON`                                                   | Existing Python interpreter; defaults to the MiryoLove AI `.venv`.                  |
-| `AI_RUNTIME_SCRIPT`                                                   | Existing `miryolove_ai.py` script path.                                             |
-| `MIRYO_MODEL_PATH`                                                    | Ready model directory; defaults to `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b`.  |
-| `MIRYOWIKI_API`, `MIRYOWIKI_URL`                                      | MiryoWiki API and article base URLs.                                                |
-| `AI_RUNTIME_TIMEOUT_MS`                                               | Model startup/generation timeout; defaults to 20 minutes.                           |
-| `AI_MAX_NEW_TOKENS`                                                   | Output-token ceiling; defaults to the existing 1,700-token setting.                 |
-| `AI_MAX_INPUT_CHARS`                                                  | Maximum current message size; defaults to 12,000 characters.                        |
-| `AI_MAX_HISTORY_MESSAGES`                                             | Maximum recent stored turns sent to the runtime; defaults to 32 messages.           |
-| `AI_MAX_SOURCE_CHARS`                                                 | Per-source excerpt ceiling; defaults to 2,400 characters.                           |
-| `AI_CONTEXT_TOKENS`                                                   | Optional context cap; `0` uses the model's `max_position_embeddings` (32,768 here). |
-| `AI_TEMPERATURE`, `AI_TOP_P`, `AI_DO_SAMPLE`, `AI_REPETITION_PENALTY` | Sampling settings; defaults match this model's generation config.                   |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`  | Optional Compose PostgreSQL settings; keep them aligned with `DATABASE_URL`.        |
+Set `DATABASE_URL` explicitly. Docker Compose also requires an explicit `POSTGRES_PASSWORD`; changing it in `.env` does not rotate the password of an already initialized PostgreSQL volume. Verify the existing database credential before changing its connection configuration.
+
+| Variable                                                              | Purpose                                                                                                     |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                            | `development`, `test`, or `production`; defaults to `development`.                                          |
+| `PORT`                                                                | HTTP listen port; defaults to `3001`.                                                                       |
+| `DATABASE_URL`                                                        | PostgreSQL connection URL.                                                                                  |
+| `SESSION_SECRET`                                                      | HMAC key used to hash session tokens in the database.                                                       |
+| `SESSION_TTL_DAYS`                                                    | Server-side session lifetime in days.                                                                       |
+| `CORS_ORIGINS`                                                        | Comma-separated list of exact allowed browser origins.                                                      |
+| `FRONTEND_URL`                                                        | Fixed redirect target after successful OAuth.                                                               |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`     | Optional Google OAuth configuration.                                                                        |
+| `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`, `YANDEX_CALLBACK_URL`     | Optional Yandex ID configuration.                                                                           |
+| `JSON_BODY_LIMIT`                                                     | Maximum JSON request body size.                                                                             |
+| `AI_RUNTIME_PYTHON`                                                   | Existing Python interpreter; defaults to the MiryoLove AI `.venv`.                                          |
+| `AI_RUNTIME_SCRIPT`                                                   | Existing `miryolove_ai.py` script path.                                                                     |
+| `MIRYO_MODEL_PATH`                                                    | Ready model directory; defaults to `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b`.                          |
+| `MIRYOWIKI_API`, `MIRYOWIKI_URL`                                      | MiryoWiki API and article base URLs.                                                                        |
+| `AI_RUNTIME_TIMEOUT_MS`                                               | Model startup/generation timeout; defaults to 20 minutes.                                                   |
+| `AI_MAX_PENDING_REQUESTS`                                             | Maximum active plus queued AI generations per process; defaults to 5 (max 100).                             |
+| `AI_MAX_NEW_TOKENS`                                                   | Output-token ceiling; defaults to the existing 1,700-token setting.                                         |
+| `AI_MAX_INPUT_CHARS`                                                  | Maximum current message size; defaults to 12,000 characters.                                                |
+| `AI_MAX_HISTORY_MESSAGES`                                             | Maximum recent stored turns sent to the runtime; defaults to 32 messages.                                   |
+| `AI_MAX_SOURCE_CHARS`                                                 | Per-source excerpt ceiling; defaults to 2,400 characters.                                                   |
+| `AI_CONTEXT_TOKENS`                                                   | Optional context cap; `0` uses the model's `max_position_embeddings` (32,768 here).                         |
+| `AI_TEMPERATURE`, `AI_TOP_P`, `AI_DO_SAMPLE`, `AI_REPETITION_PENALTY` | Sampling settings; defaults match this model's generation config.                                           |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`  | Compose PostgreSQL settings; `POSTGRES_PASSWORD` is required. Keep credentials aligned with `DATABASE_URL`. |
 
 `DATABASE_URL` must connect to PostgreSQL. SQLite and MongoDB are not supported. Do not print `.env` contents in logs, tickets, or documentation.
 
@@ -246,6 +249,7 @@ Authenticated routes use the `miryolove_session` HTTP-only cookie. The server do
 | `GET`    | `/api/auth/yandex/callback`   | OAuth state    | Complete Yandex ID OAuth.                                            |
 | `GET`    | `/api/users/me`               | Yes            | Read the current profile.                                            |
 | `PATCH`  | `/api/users/me`               | Yes            | Update display name and/or HTTPS avatar URL.                         |
+| `DELETE` | `/api/users/me`               | Yes            | Delete the authenticated account and cascading related records.      |
 | `POST`   | `/api/chats`                  | Yes            | Create a chat; title is optional.                                    |
 | `GET`    | `/api/chats`                  | Yes            | List the caller's chats; `limit` is 1–100 (default 50).              |
 | `GET`    | `/api/chats/:chatId`          | Yes            | Read an owned chat.                                                  |
@@ -267,6 +271,8 @@ Request details:
 
 Chat lookups and mutations are scoped to the authenticated owner. Another user's chat is reported as not found. Deleting a chat deletes its messages through the configured database relation.
 
+Account deletion requires the authenticated session and deletes the user's database record; PostgreSQL cascades the existing OAuth accounts, sessions, chats, and messages. It does not erase backups or external logs. See [docs/USER_DATA_RIGHTS.md](docs/USER_DATA_RIGHTS.md) before relying on it for a data-subject request.
+
 In development, API documentation is available at `http://localhost:3001/docs`, with the OpenAPI document at `http://localhost:3001/openapi.json`. Both are disabled outside development.
 
 ## Authentication and security
@@ -284,7 +290,7 @@ Before production, use HTTPS, a unique high-entropy secret from a secure configu
 
 ## MiryoLove AI runtime and retrieval
 
-The backend starts the existing `../MiryoLove AI/miryolove_ai.py` in one persistent Python process on the first authenticated AI request. It loads the ready model from `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b` once and serializes generation requests. Configure the interpreter, script, model path, and timeout with the `AI_RUNTIME_*` and `MIRYO_MODEL_PATH` variables. The runtime is not started at backend boot; the first request can take several minutes while the model loads. The existing model script does not implement token streaming.
+The backend starts the existing `../MiryoLove AI/miryolove_ai.py` in one persistent Python process on the first authenticated AI request. It loads the ready model from `/mnt/Tears/MiryoLove AI/Qwen/miryo_merged_7b` once and serializes generation requests. `AI_MAX_PENDING_REQUESTS` bounds active plus queued requests per process; excess requests receive `503 AI_RUNTIME_BUSY`. This is an in-memory per-process limit, not a distributed quota. Configure the interpreter, script, model path, and timeout with the `AI_RUNTIME_*` and `MIRYO_MODEL_PATH` variables. The runtime is not started at backend boot; the first request can take several minutes while the model loads. The existing model script does not implement token streaming.
 
 The AI service checks chat ownership before loading up to 32 prior messages. The runtime tokenizes the full chat-template prompt, uses the model config's 32,768-token context limit (the tokenizer advertises 131,072, which is not the model limit), prunes oldest history first, then reduces or drops source excerpts to reserve configured output tokens. The current question is added once after the history. Generation uses the model's EOS IDs and inference mode; temperature, top-p, sampling, repetition penalty, and token/character ceilings are configurable.
 
@@ -315,6 +321,8 @@ prisma/
   schema.prisma
   migrations/
 tests/
+docs/             Technical security, privacy, backup, and operations documents
+scripts/backup.sh Encrypted local PostgreSQL/source backup; scheduling is manual
 ```
 
 ## Documentation languages

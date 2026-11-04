@@ -156,6 +156,14 @@ export const openApiDocument = {
           "401": { description: "Authentication is required." },
         },
       },
+      delete: {
+        summary: "Delete the authenticated user's account and related records",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "204": { description: "Account deleted." },
+          "401": { description: "Authentication is required." },
+        },
+      },
     },
     "/api/chats": {
       get: {

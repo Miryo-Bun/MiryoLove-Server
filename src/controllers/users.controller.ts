@@ -3,10 +3,13 @@ import type { ProfileServiceContract } from "../types/contracts.js";
 import { updateProfileSchema } from "../schemas/user.schema.js";
 import { getAuthenticatedUser } from "../middleware/auth.middleware.js";
 import { validate } from "../utils/validation.js";
+import { env } from "../config/env.js";
+import { clearSessionCookie } from "../utils/cookies.js";
 
 export function createUsersController(profileService: ProfileServiceContract): {
   getMe: RequestHandler;
   updateMe: RequestHandler;
+  deleteMe: RequestHandler;
 } {
   return {
     getMe: async (request, response) => {
@@ -21,6 +24,11 @@ export function createUsersController(profileService: ProfileServiceContract): {
       response.json({
         user: await profileService.update(getAuthenticatedUser(request).id, update),
       });
+    },
+    deleteMe: async (request, response) => {
+      await profileService.delete(getAuthenticatedUser(request).id);
+      clearSessionCookie(response, env.NODE_ENV === "production");
+      response.status(204).end();
     },
   };
 }

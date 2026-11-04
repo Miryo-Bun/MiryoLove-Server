@@ -64,8 +64,8 @@ def fetch_wikipedia_summary(query: str, lang: str = "en"):
             with urllib.request.urlopen(req_summary) as summary_response:
                 summary_data = json.loads(summary_response.read().decode('utf-8'))
                 return title, summary_data.get('extract', '')
-    except Exception as e:
-        print(f"[ERROR] Wikipedia API request failed: {e}")
+    except Exception:
+        print("[ERROR] Wikipedia API request failed")
         return None, None
 
 
@@ -116,7 +116,7 @@ async def chat_endpoint(request: ChatRequest):
     needs_wiki = request.use_wiki and any(trigger in user_text.lower() for trigger in triggers)
 
     if needs_wiki:
-        print(f"🔍 Triggers detected. Fetching Wikipedia context for query: {user_text}")
+        print("🔍 Triggers detected. Fetching Wikipedia context.")
         title, summary = fetch_wikipedia_summary(user_text, lang=request.lang)
         if title and summary:
             wiki_context = (
@@ -154,4 +154,4 @@ async def chat_endpoint(request: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
