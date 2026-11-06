@@ -18,6 +18,10 @@ export interface SessionResult {
 export interface AuthServiceContract {
   register(input: { email: string; password: string; displayName: string }): Promise<SessionResult>;
   login(input: { email: string; password: string }): Promise<SessionResult>;
+  changePassword(
+    userId: string,
+    input: { currentPassword: string; newPassword: string },
+  ): Promise<void>;
   authenticate(token: string): Promise<PublicUser | null>;
   logout(token: string | undefined): Promise<void>;
   createSession(userId: string): Promise<SessionResult>;
@@ -30,6 +34,8 @@ export interface ProfileServiceContract {
     input: { displayName?: string; avatarUrl?: string | null },
   ): Promise<PublicUser>;
   delete(userId: string): Promise<void>;
+  listOAuthProviders(userId: string): Promise<Array<"google" | "yandex">>;
+  unlinkOAuthProvider(userId: string, provider: "google" | "yandex"): Promise<void>;
 }
 
 export interface ChatRecord {

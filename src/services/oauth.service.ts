@@ -41,10 +41,18 @@ export function validateOAuthState(
   queryState: string | undefined,
   cookieState: string | undefined,
 ): boolean {
+  if (typeof queryState !== "string" || typeof cookieState !== "string") return false;
   if (!queryState || !cookieState) return false;
-  const query = Buffer.from(queryState);
-  const cookie = Buffer.from(cookieState);
-  return query.length === cookie.length && timingSafeEqual(query, cookie);
+
+  const query = Buffer.from(queryState, "utf8");
+  const cookie = Buffer.from(cookieState, "utf8");
+  if (query.length !== cookie.length) return false;
+
+  try {
+    return timingSafeEqual(query, cookie);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchJson(url: string, init: RequestInit): Promise<Record<string, unknown>> {

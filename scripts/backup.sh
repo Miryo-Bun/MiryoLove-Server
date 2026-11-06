@@ -37,7 +37,7 @@ chmod 700 -- "$backup_dir"
 backup_dir_realpath="$(realpath -e -- "$backup_dir")"
 passphrase_realpath="$(realpath -e -- "$passphrase_file")"
 case "$passphrase_realpath" in
-  "$backup_dir_realpath"/*)
+  "$backup_dir_realpath"|"$backup_dir_realpath"/*)
     printf 'Backup passphrase must not be stored in the backup directory.\n' >&2
     exit 1
     ;;

@@ -6,10 +6,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-miryo_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a unique POSTGRES_PASSWORD before starting PostgreSQL}
       POSTGRES_DB: ${POSTGRES_DB:-miryolove}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-miryo_app_runtime}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD for the runtime role}
+      POSTGRES_MIGRATOR_USER: ${POSTGRES_MIGRATOR_USER:-miryo_app_migrator}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?Set POSTGRES_MIGRATOR_PASSWORD for the migration role}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - miryolove-postgres-data:/var/lib/postgresql/data
+      - ./scripts/postgres/10-create-roles.sql:/docker-entrypoint-initdb.d/10-create-roles.sql:ro
+      - ./scripts/postgres:/opt/miryolove/postgres:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

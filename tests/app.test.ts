@@ -25,6 +25,7 @@ class MemoryAuth implements AuthServiceContract {
   users = new Map<string, PublicUser>();
   credentials = new Map<string, string>();
   sessions = new Map<string, string>();
+  sessionExpiry = new Map<string, Date>();
 
   async register(input: {
     email: string;
@@ -61,27 +62,61 @@ class MemoryAuth implements AuthServiceContract {
     return this.createSession(user.id);
   }
 
+  async changePassword(
+    userId: string,
+    input: { currentPassword: string; newPassword: string },
+  ): Promise<void> {
+    const currentPassword = this.credentials.get(userId);
+    if (!currentPassword) {
+      throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+    if (currentPassword !== input.currentPassword) {
+      throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+    this.credentials.set(userId, input.newPassword);
+    for (const [token, sessionUserId] of this.sessions) {
+      if (sessionUserId === userId) {
+        this.sessions.delete(token);
+        this.sessionExpiry.delete(token);
+      }
+    }
+  }
+
   async authenticate(token: string): Promise<PublicUser | null> {
     const userId = this.sessions.get(token);
-    return userId ? (this.users.get(userId) ?? null) : null;
+    if (!userId) return null;
+    const expiresAt = this.sessionExpiry.get(token);
+    if (!expiresAt || expiresAt <= new Date()) {
+      this.sessions.delete(token);
+      this.sessionExpiry.delete(token);
+      return null;
+    }
+    return this.users.get(userId) ?? null;
   }
 
   async logout(token: string | undefined): Promise<void> {
-    if (token) this.sessions.delete(token);
+    if (token) {
+      this.sessions.delete(token);
+      this.sessionExpiry.delete(token);
+    }
   }
 
   async createSession(userId: string): Promise<SessionResult> {
     const currentUser = this.users.get(userId);
     if (!currentUser) throw new AppError(404, "USER_NOT_FOUND", "User was not found.");
     const token = randomUUID();
+    const expiresAt = new Date(Date.now() + 60_000);
     const user = { ...currentUser, lastLoginAt: new Date() };
     this.users.set(userId, user);
     this.sessions.set(token, userId);
-    return { user, token, expiresAt: new Date(Date.now() + 60_000) };
+    this.sessionExpiry.set(token, expiresAt);
+    return { user, token, expiresAt };
   }
 }
 
 class MemoryProfiles implements ProfileServiceContract {
+  oauthProviders = new Map<string, Set<"google" | "yandex">>();
+
   constructor(
     private readonly auth: MemoryAuth,
     private readonly chats: MemoryChats,
@@ -106,8 +141,12 @@ class MemoryProfiles implements ProfileServiceContract {
   async delete(userId: string): Promise<void> {
     this.auth.users.delete(userId);
     this.auth.credentials.delete(userId);
+    this.oauthProviders.delete(userId);
     for (const [token, sessionUserId] of this.auth.sessions) {
-      if (sessionUserId === userId) this.auth.sessions.delete(token);
+      if (sessionUserId === userId) {
+        this.auth.sessions.delete(token);
+        this.auth.sessionExpiry.delete(token);
+      }
     }
     for (const [chatId, chat] of this.chats.chats) {
       if (chat.userId === userId) {
@@ -115,6 +154,41 @@ class MemoryProfiles implements ProfileServiceContract {
         this.chats.messages.delete(chatId);
       }
     }
+  }
+
+  async listOAuthProviders(userId: string): Promise<Array<"google" | "yandex">> {
+    if (!this.auth.users.has(userId))
+      throw new AppError(404, "USER_NOT_FOUND", "User was not found.");
+    return [...(this.oauthProviders.get(userId) ?? new Set())];
+  }
+
+  async unlinkOAuthProvider(userId: string, provider: "google" | "yandex"): Promise<void> {
+    const linked = this.oauthProviders.get(userId) ?? new Set();
+    if (!linked.has(provider)) {
+      throw new AppError(404, "OAUTH_ACCOUNT_NOT_FOUND", "This OAuth connection was not found.");
+    }
+
+    const hasPasswordLogin = this.auth.credentials.has(userId);
+    if (!hasPasswordLogin && linked.size === 1) {
+      throw new AppError(
+        409,
+        "LAST_SIGN_IN_METHOD",
+        "This is the last sign-in method. Add a password before disconnecting it.",
+      );
+    }
+
+    linked.delete(provider);
+    if (linked.size === 0) {
+      this.oauthProviders.delete(userId);
+      return;
+    }
+    this.oauthProviders.set(userId, linked);
+  }
+
+  linkOAuthProvider(userId: string, provider: "google" | "yandex"): void {
+    const providers = this.oauthProviders.get(userId) ?? new Set();
+    providers.add(provider);
+    this.oauthProviders.set(userId, providers);
   }
 }
 
@@ -223,15 +297,17 @@ class MemoryOAuth implements OAuthServiceContract {
 describe("MiryoLove Server API", () => {
   let auth: MemoryAuth;
   let chats: MemoryChats;
+  let profileService: MemoryProfiles;
   let app: ReturnType<typeof createApp>;
 
   beforeEach(() => {
     auth = new MemoryAuth();
     chats = new MemoryChats();
+    profileService = new MemoryProfiles(auth, chats);
     app = createApp({
       authService: auth,
       oauthService: new MemoryOAuth(auth),
-      profileService: new MemoryProfiles(auth, chats),
+      profileService,
       chatService: chats,
       aiService: {
         async generateResponse() {
@@ -333,6 +409,10 @@ describe("MiryoLove Server API", () => {
 
   it("requires auth for current-user endpoints and invalidates the session on logout", async () => {
     await request(app).get("/api/auth/me").expect(401);
+    await request(app)
+      .post("/api/auth/password")
+      .send({ currentPassword: "a-long-test-password", newPassword: "new-long-test-password" })
+      .expect(401);
     const expiredLogout = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", "miryolove_session=invalid-token")
@@ -355,6 +435,121 @@ describe("MiryoLove Server API", () => {
     expect(logout.headers["set-cookie"][0]).toContain("Max-Age=0");
     await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
     await request(app).get("/api/users/me").set("Cookie", cookie).expect(401);
+  });
+
+  it("rejects expired sessions and allows several valid sessions for the same user", async () => {
+    const firstCookie = await register();
+    const secondLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "person@example.com", password: "a-long-test-password" })
+      .expect(200);
+    const firstToken = firstCookie.split("=")[1]!.split(";")[0];
+    const secondToken = secondLogin.headers["set-cookie"][0].split(";")[0].split("=")[1];
+    expect(
+      [...auth.sessions.values()].filter((userId) => userId === auth.users.keys().next().value),
+    ).toHaveLength(2);
+    expect(auth.sessions.has(firstToken)).toBe(true);
+    expect(auth.sessions.has(secondToken)).toBe(true);
+
+    const expiredToken = randomUUID();
+    const userId = [...auth.users.keys()][0]!;
+    auth.sessions.set(expiredToken, userId);
+    auth.sessionExpiry.set(expiredToken, new Date(Date.now() - 5000));
+
+    await request(app)
+      .get("/api/auth/me")
+      .set("Cookie", `miryolove_session=${expiredToken}`)
+      .expect(401);
+    expect(auth.sessions.has(expiredToken)).toBe(false);
+  });
+
+  it("lists and deletes linked OAuth providers without leaving a user sign-in-less", async () => {
+    const cookie = await register();
+    const userId = [...auth.users.keys()][0]!;
+    profileService.linkOAuthProvider(userId, "google");
+    await request(app)
+      .get("/api/users/me/oauth")
+      .set("Cookie", cookie)
+      .expect(200, {
+        providers: ["google"],
+      });
+    await request(app).delete("/api/users/me/oauth/google").set("Cookie", cookie).expect(204);
+    await request(app).get("/api/users/me/oauth").set("Cookie", cookie).expect(200, {
+      providers: [],
+    });
+
+    profileService.linkOAuthProvider(userId, "google");
+    await request(app).delete("/api/users/me/oauth/google").set("Cookie", cookie).expect(204);
+    profileService.linkOAuthProvider(userId, "google");
+    const otherCookie = await register("other@example.com");
+    await request(app).delete("/api/users/me/oauth/google").set("Cookie", otherCookie).expect(404);
+    await request(app).delete("/api/users/me/oauth/unknown").set("Cookie", cookie).expect(404);
+
+    auth.credentials.delete(userId);
+    profileService.linkOAuthProvider(userId, "google");
+    await request(app)
+      .delete("/api/users/me/oauth/google")
+      .set("Cookie", cookie)
+      .expect(409, {
+        error: {
+          code: "LAST_SIGN_IN_METHOD",
+          message: "This is the last sign-in method. Add a password before disconnecting it.",
+        },
+      });
+
+    auth.credentials.set(userId, "a-long-test-password");
+    profileService.linkOAuthProvider(userId, "yandex");
+    await request(app).delete("/api/users/me/oauth/yandex").set("Cookie", cookie).expect(204);
+    await request(app).delete("/api/users/me/oauth/google").set("Cookie", cookie).expect(204);
+  });
+
+  it("requires the current password before updating credentials and invalidates active sessions", async () => {
+    const cookie = await register();
+    await request(app)
+      .post("/api/auth/password")
+      .set("Cookie", cookie)
+      .send({ currentPassword: "wrong-password", newPassword: "new-long-test-password" })
+      .expect(401, {
+        error: { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect." },
+      });
+
+    const response = await request(app)
+      .post("/api/auth/password")
+      .set("Cookie", cookie)
+      .send({ currentPassword: "a-long-test-password", newPassword: "new-long-test-password" })
+      .expect(204);
+    expect(response.headers["set-cookie"][0]).toContain("miryolove_session=");
+    expect(response.headers["set-cookie"][0]).toContain("Max-Age=0");
+
+    await request(app).get("/api/auth/me").set("Cookie", cookie).expect(401);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "person@example.com", password: "new-long-test-password" })
+      .expect(200);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "person@example.com", password: "a-long-test-password" })
+      .expect(401);
+  });
+
+  it("rejects malformed registration and login payloads before they reach the auth service", async () => {
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email: "not-an-email", password: "a-long-test-password", displayName: "Person" })
+      .expect(400);
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email: "person@example.com", password: "", displayName: "Person" })
+      .expect(400);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "person@example.com", password: "" })
+      .expect(400);
+    await request(app)
+      .post("/api/auth/password")
+      .set("Cookie", await register())
+      .send({ currentPassword: "", newPassword: "new-long-test-password" })
+      .expect(400);
   });
 
   it("rejects state-changing requests from origins outside the configured allowlist", async () => {

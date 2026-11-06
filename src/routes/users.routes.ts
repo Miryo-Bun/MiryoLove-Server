@@ -11,7 +11,9 @@ export function createUsersRoutes(
   const controller = createUsersController(profileService);
   router.use(requireAuth(authService));
   router.get("/me", controller.getMe);
+  router.get("/me/oauth", controller.listOAuthProviders);
   router.patch("/me", controller.updateMe);
   router.delete("/me", controller.deleteMe);
+  router.delete("/me/oauth/:provider", controller.deleteOAuthProvider);
   return router;
 }

@@ -8,5 +8,17 @@ export function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(hash: string | null, password: string): Promise<boolean> {
-  return argon2.verify(hash ?? (await dummyHash), password);
+  if (typeof password !== "string") return false;
+
+  if (typeof hash !== "string" || hash.length === 0) {
+    await argon2.verify(await dummyHash, password);
+    return false;
+  }
+
+  try {
+    return await argon2.verify(hash, password);
+  } catch {
+    await argon2.verify(await dummyHash, password);
+    return false;
+  }
 }

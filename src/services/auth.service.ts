@@ -6,6 +6,15 @@ import type { PublicUser, SessionResult } from "../types/contracts.js";
 import { AppError } from "../utils/errors.js";
 import { hashPassword, verifyPassword } from "../utils/password.js";
 
+async function pruneExpiredSessions(userId?: string): Promise<void> {
+  await prisma.session.deleteMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      expiresAt: { lte: new Date() },
+    },
+  });
+}
+
 type DatabaseUser = {
   id: string;
   email: string;
@@ -43,6 +52,7 @@ export class AuthService {
       const user = await prisma.user.create({
         data: { email, passwordHash, displayName: input.displayName.trim() },
       });
+      await pruneExpiredSessions(user.id);
       return this.createSession(user.id);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -65,10 +75,38 @@ export class AuthService {
     if (!user || !user.passwordHash || !valid) {
       throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
     }
+    await pruneExpiredSessions(user.id);
     return this.createSession(user.id);
   }
 
+  async changePassword(
+    userId: string,
+    input: { currentPassword: string; newPassword: string },
+  ): Promise<void> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    if (!user?.passwordHash) {
+      throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+
+    const valid = await verifyPassword(user.passwordHash, input.currentPassword);
+    if (!valid) {
+      throw new AppError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+
+    const passwordHash = await hashPassword(input.newPassword);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      prisma.session.deleteMany({ where: { userId } }),
+    ]);
+  }
+
   async authenticate(token: string): Promise<PublicUser | null> {
+    if (!token) return null;
+    await pruneExpiredSessions();
+
     const session = await prisma.session.findUnique({
       where: { tokenHash: hashToken(token) },
       include: { user: true },
@@ -82,12 +120,13 @@ export class AuthService {
   }
 
   async logout(token: string | undefined): Promise<void> {
-    if (token) {
-      await prisma.session.deleteMany({ where: { tokenHash: hashToken(token) } });
-    }
+    if (!token) return;
+    await pruneExpiredSessions();
+    await prisma.session.deleteMany({ where: { tokenHash: hashToken(token) } });
   }
 
   async createSession(userId: string): Promise<SessionResult> {
+    await pruneExpiredSessions(userId);
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
     const [, session] = await prisma.$transaction([

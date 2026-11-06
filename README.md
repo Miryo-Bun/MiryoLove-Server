@@ -34,7 +34,7 @@ The HTTP layer is organized into routes, controllers, Zod schemas, middleware, s
 
 ## Implemented capabilities
 
-- Email/password registration and login; passwords are hashed with Argon2id.
+- Email/password registration, login, and self-service password change; passwords are hashed with Argon2id and the current password must be verified before rotation.
 - Opaque server-side sessions in PostgreSQL, represented only by an HTTP-only `SameSite=Lax` cookie scoped to `/api` and marked `Secure` in production. The browser never receives the session token in JSON or stores it in Web Storage.
 - Current-user and profile read/update operations.
 - Create, list, read, rename, and delete a caller's own chats.
@@ -46,6 +46,15 @@ The HTTP layer is organized into routes, controllers, Zod schemas, middleware, s
 - Health endpoints, request validation, JSON error responses, request logging, rate limits, and development OpenAPI/Swagger.
 
 The public message-creation endpoint accepts only the `user` role. `assistant` and `system` messages must only be created by trusted server-side code. The AI endpoint stores user and assistant messages only after model generation succeeds. Logout clears the cookie even when the server-side session has expired.
+
+## Security and data-handling notes
+
+- Password verification fails closed for malformed hashes or unexpected input values.
+- OAuth state values are compared using constant-time equality and cannot be accepted when the callback state or cookie state is missing or mismatched.
+- Sessions are rejected once expired and cleanup removes expired records without touching valid active sessions.
+- OAuth provider unlinking respects ownership and prevents removing the last available sign-in method for a user unless a password login remains available.
+- Backup passphrase files must not be placed inside the backup directory; path validation rejects equivalent real paths as well as direct children of the backup root.
+- This project does not define or enforce automatic retention periods for user data. Any retention period beyond the configured storage lifetime requires human review and approval.
 
 ## Technology
 

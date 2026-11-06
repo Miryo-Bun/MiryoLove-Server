@@ -16,9 +16,15 @@ import {
   setOAuthStateCookie,
   setSessionCookie,
 } from "../utils/cookies.js";
+import { getAuthenticatedUser } from "../middleware/auth.middleware.js";
 import { AppError } from "../utils/errors.js";
 import { validate } from "../utils/validation.js";
-import { loginSchema, oauthCallbackSchema, registerSchema } from "../schemas/auth.schema.js";
+import {
+  changePasswordSchema,
+  loginSchema,
+  oauthCallbackSchema,
+  registerSchema,
+} from "../schemas/auth.schema.js";
 import { validateOAuthState } from "../services/oauth.service.js";
 
 const isSecure = env.NODE_ENV === "production";
@@ -29,6 +35,7 @@ export function createAuthController(
 ): {
   register: RequestHandler;
   login: RequestHandler;
+  changePassword: RequestHandler;
   logout: RequestHandler;
   me: RequestHandler;
   oauthStart(provider: "google" | "yandex"): RequestHandler;
@@ -69,13 +76,20 @@ export function createAuthController(
       logger.info({ event: "authentication_succeeded", method: "password" }, "User authenticated");
       response.json({ user: session.user });
     },
+    changePassword: async (request, response) => {
+      const input = validate(changePasswordSchema, request.body);
+      const user = getAuthenticatedUser(request);
+      await authService.changePassword(user.id, input);
+      clearSessionCookie(response, isSecure);
+      response.status(204).end();
+    },
     logout: async (request, response) => {
       await authService.logout(readSessionCookie(request.headers.cookie));
       clearSessionCookie(response, isSecure);
       response.status(204).end();
     },
     me: (request, response) => {
-      response.json({ user: request.authUser });
+      response.json({ user: getAuthenticatedUser(request) });
     },
     oauthStart: (provider) => (_request, response) => {
       const state = randomBytes(32).toString("base64url");
